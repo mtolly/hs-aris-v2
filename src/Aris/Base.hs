@@ -3,17 +3,22 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Aris.Base where
 
 import Network.HTTP (simpleHTTP, postRequestWithBody, getResponseBody)
 import qualified Data.Aeson as A
+import qualified Data.Aeson.TH as ATH
 import Data.Aeson ((.:))
+import Data.Aeson.Types (Parser)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BL
 import Control.Applicative ((<|>))
 import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
+import Text.Read (readMaybe)
+import Data.Char (toUpper)
 
 callAris :: (A.ToJSON a, A.FromJSON b) => String -> a -> IO (Return b)
 callAris fun val = do
@@ -48,6 +53,58 @@ instance (A.FromJSON a) => A.FromJSON (Return a) where
           returnCodeDescription <- obj .: "returnCodeDescription"
           return Error{..}
 
-getGame :: Int -> IO (Return A.Value)
-getGame i = callAris "games.getGame" $
-  A.object [(T.pack "game_id", A.Number $ fromIntegral i)]
+getGame :: Int -> IO (Return Game)
+getGame i = callAris "games.getGame" $ A.object
+  [ ("game_id", A.Number $ fromIntegral i)
+  ]
+
+data Game = Game
+  { gameID :: Int
+  , gameName :: String
+  , gameDescription :: String
+  , iconMediaID :: Int
+  , mediaID :: Int
+  , gameType :: GameType
+  , mapType :: MapType
+  } deriving (Eq, Ord, Show, Read)
+
+instance A.FromJSON Game where
+  parseJSON = A.withObject "game object" $ \obj -> do
+    gameID          <- parseRead $ obj .: "game_id"
+    gameName        <-             obj .: "name"
+    gameDescription <-             obj .: "description"
+    iconMediaID     <- parseRead $ obj .: "icon_media_id"
+    mediaID         <- parseRead $ obj .: "media_id"
+    gameType        <-             obj .: "type"
+    mapType         <-             obj .: "map_type"
+    return Game{..}
+
+data GameType
+  = Location
+  | Anywhere
+  | QR
+  deriving (Eq, Ord, Show, Read, Enum, Bounded)
+
+data MapType
+  = Street
+  | Satellite
+  | Hybrid
+  deriving (Eq, Ord, Show, Read, Enum, Bounded)
+
+parseBool :: Parser String -> Parser Bool
+parseBool p = do
+  s <- p
+  case s of
+    "0" -> return False
+    "1" -> return True
+    _   -> fail $ "couldn't read Bool from String: " ++ show s
+
+parseRead :: (Read a) => Parser String -> Parser a
+parseRead p = do
+  s <- p
+  case readMaybe s of
+    Just x -> return x
+    Nothing -> fail $ "couldn't read value from String: " ++ show s
+
+ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''GameType
+ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''MapType
