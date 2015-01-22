@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 module Aris.Base where
 
 import Network.HTTP (simpleHTTP, postRequestWithBody, getResponseBody)
@@ -7,6 +8,7 @@ import Data.Aeson ((.:))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BL
+import Control.Applicative ((<|>))
 
 callAris :: String -> A.Value -> IO (Return A.Value)
 callAris fun val = do
@@ -21,19 +23,25 @@ callAris fun val = do
       ++ err ++ "; response body: " ++ body
 
 data Return a
-  -- = Fault { faultCode :: String, faultDetail :: String, faultString :: String }
-  = Error Int String
+  = Fault { faultCode :: String, faultDetail :: String, faultString :: String }
+  | Error { returnCode :: Int, returnCodeDescription :: String }
   | Data a
   deriving (Eq, Ord, Show, Read)
 
 instance (A.FromJSON a) => A.FromJSON (Return a) where
-  parseJSON = A.withObject "return-code-wrapped object" $ \obj -> do
-    code <- obj .: "returnCode"
-    if code == 0
-      then fmap Data $ obj .: "data"
-      else do
-        desc <- obj .: "returnCodeDescription"
-        return $ Error code desc
+  parseJSON = A.withObject "return-code-wrapped object" $ \obj
+    ->  do
+      faultCode   <- obj .: "faultCode"
+      faultDetail <- obj .: "faultDetail"
+      faultString <- obj .: "faultString"
+      return Fault{..}
+    <|> do
+      returnCode <- obj .: "returnCode"
+      if returnCode == 0
+        then fmap Data $ obj .: "data"
+        else do
+          returnCodeDescription <- obj .: "returnCodeDescription"
+          return Error{..}
 
 getGame :: Int -> IO (Return A.Value)
 getGame i = callAris "games.getGame" $
