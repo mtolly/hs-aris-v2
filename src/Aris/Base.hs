@@ -121,8 +121,11 @@ getUser auth i = callAris "users.getUser" $ A.object
   , ("user_id", A.toJSON i)
   ]
 
-newtype AsStr a = AsStr { runAsStr :: a }
-  deriving (Eq, Ord, Show, Read, Functor, Foldable, Traversable)
+newtype AsStr a = AsStr { runAsStr :: a } deriving
+  ( Eq, Ord, Show, Read
+  , Functor, Foldable, Traversable
+  , Num, Enum, Integral, Real, Fractional, RealFrac
+  )
 
 instance (Read a) => A.FromJSON (AsStr a) where
   parseJSON = A.withText "value stored as string" $ \txt ->
