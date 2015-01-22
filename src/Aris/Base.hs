@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Aris.Base where
 
 import Network.HTTP (simpleHTTP, postRequestWithBody, getResponseBody)
@@ -13,7 +14,7 @@ import Data.Aeson ((.:))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BL
-import Control.Applicative ((<|>))
+import Control.Applicative ((<|>), Applicative(..))
 import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
 import Text.Read (readMaybe)
@@ -28,14 +29,18 @@ callAris fun val = do
   body <- getResponseBody rsp
   case A.eitherDecodeStrict $ TE.encodeUtf8 $ T.pack body of
     Right x  -> return x
-    Left err -> error $ "Aris.Base.callAris: invalid JSON returned by API; "
+    Left err -> return $ Return $ Left $ Internal
+      $ "Aris.Base.callAris: invalid JSON returned by API; "
       ++ err ++ "; response body: " ++ body
 
-data Return a
-  = Fault { faultCode :: String, faultDetail :: String, faultString :: String }
-  | Error { returnCode :: Int, returnCodeDescription :: String }
-  | Data a
-  deriving (Eq, Ord, Show, Read, Functor, Foldable, Traversable)
+data ArisError
+  = Error { returnCode :: Int, returnCodeDescription :: String }
+  | Fault { faultCode :: String, faultDetail :: String, faultString :: String }
+  | Internal String
+  deriving (Eq, Ord, Show, Read)
+
+newtype Return a = Return { runReturn :: Either ArisError a }
+  deriving (Eq, Ord, Show, Read, Functor, Foldable, Traversable, Applicative, Monad)
 
 instance (A.FromJSON a) => A.FromJSON (Return a) where
   parseJSON = A.withObject "return-code-wrapped object" $ \obj
@@ -43,14 +48,14 @@ instance (A.FromJSON a) => A.FromJSON (Return a) where
       faultCode   <- obj .: "faultCode"
       faultDetail <- obj .: "faultDetail"
       faultString <- obj .: "faultString"
-      return Fault{..}
+      return $ Return $ Left Fault{..}
     <|> do
       returnCode <- obj .: "returnCode"
       if returnCode == 0
-        then fmap Data $ obj .: "data"
+        then fmap (Return . Right) $ obj .: "data"
         else do
           returnCodeDescription <- obj .: "returnCodeDescription"
-          return Error{..}
+          return $ Return $ Left Error{..}
 
 getGame :: Int -> IO (Return Game)
 getGame i = callAris "games.getGame" $ A.object
@@ -68,26 +73,41 @@ data User = User
   , u_user_name :: String
   , u_display_name :: String
   , u_media_id :: AsStr Int
-  , u_read_write_key :: String
   } deriving (Eq, Ord, Show, Read)
-
-userToAuth :: User -> Auth
-userToAuth User{..} = Auth
-  { a_user_id    = runAsStr u_user_id
-  , a_permission = "read_write"
-  , a_key        = u_read_write_key
-  }
 
 getGamesForUser :: Auth -> IO (Return [Game])
 getGamesForUser auth = callAris "games.getGamesForUser" $ A.object
   [ ("auth", A.toJSON auth)
   ]
 
-logIn :: String -> String -> IO (Return User)
+data UserAuth = UserAuth { ua_user :: User, ua_auth :: Auth }
+  deriving (Eq, Ord, Show, Read)
+
+instance A.FromJSON UserAuth where
+  parseJSON v = do
+    user <- A.parseJSON v
+    flip (A.withObject "object with auth key") v $ \obj -> do
+      let authFor perm = do
+            key <- obj .: T.pack (perm ++ "_key")
+            return Auth
+              { a_user_id    = runAsStr $ u_user_id user
+              , a_permission = perm
+              , a_key        = key
+              }
+      auth <- authFor "read_write" <|> authFor "read" <|> authFor "write"
+      return $ UserAuth user auth
+
+logIn :: String -> String -> IO (Return UserAuth)
 logIn un pw = callAris "users.logIn" $ A.object
-  [ ("user_name", A.toJSON un)
-  , ("password", A.toJSON pw)
-  , ("permission", "read_write")
+    [ ("user_name", A.toJSON un)
+    , ("password", A.toJSON pw)
+    , ("permission", "read_write")
+    ]
+
+getUser :: Auth -> Int -> IO (Return User)
+getUser auth i = callAris "users.getUser" $ A.object
+  [ ("auth", A.toJSON auth)
+  , ("user_id", A.toJSON i)
   ]
 
 newtype AsStr a = AsStr { runAsStr :: a }
@@ -99,6 +119,9 @@ instance (Read a) => A.FromJSON (AsStr a) where
       Nothing -> fail $ "couldn't read value from String: " ++ show txt
       Just x  -> return $ AsStr x
 
+instance (Show a) => A.ToJSON (AsStr a) where
+  toJSON (AsStr x) = A.String $ T.pack $ show x
+
 newtype StrBool = StrBool { runStrBool :: Bool }
   deriving (Eq, Ord, Show, Read)
 
@@ -106,6 +129,9 @@ instance A.FromJSON StrBool where
   parseJSON (A.String "0") = return $ StrBool False
   parseJSON (A.String "1") = return $ StrBool True
   parseJSON _ = fail "expected bool as \"0\" \"1\""
+
+instance A.ToJSON StrBool where
+  toJSON (StrBool b) = A.String $ if b then "1" else "0"
 
 data Game = Game
   { g_game_id :: AsStr Int
@@ -150,9 +176,9 @@ data MapType
   | Hybrid
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
-ATH.deriveToJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Auth
-ATH.deriveFromJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''User
+ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Auth
+ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2, ATH.omitNothingFields = True } ''User
 
-ATH.deriveFromJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Game
+ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Game
 ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''GameType
 ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''MapType
