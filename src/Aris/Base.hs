@@ -59,13 +59,34 @@ getGame i = callAris "games.getGame" $ A.object
   ]
 
 data Game = Game
-  { gameID :: Int
-  , gameName :: String
-  , gameDescription :: String
-  , iconMediaID :: Int
-  , mediaID :: Int
-  , gameType :: GameType
-  , mapType :: MapType
+  { gameID :: Int             -- $game->game_id                                      = $sql_game->game_id;
+  , gameName :: String        -- $game->name                                         = $sql_game->name;
+  , gameDescription :: String -- $game->description                                  = $sql_game->description;
+  , iconMediaID :: Int        -- $game->icon_media_id                                = $sql_game->icon_media_id;
+  , mediaID :: Int            -- $game->media_id                                     = $sql_game->media_id;
+  , published :: Bool         -- $game->published                                    = $sql_game->published;
+  , gameType :: GameType      -- $game->type                                         = $sql_game->type;
+  , introSceneID :: Int       -- $game->intro_scene_id                               = $sql_game->intro_scene_id;
+  , mapType :: MapType        -- $game->map_type                                     = $sql_game->map_type;
+  , mapLatitude :: Double     -- $game->map_latitude                                 = $sql_game->map_latitude;
+  , mapLongitude :: Double    -- $game->map_longitude                                = $sql_game->map_longitude;
+  , mapZoomLevel :: Double    -- $game->map_zoom_level                               = $sql_game->map_zoom_level;
+  , mapShowPlayer :: Bool     -- $game->map_show_player                              = $sql_game->map_show_player;
+  , mapShowPlayers :: Bool    -- $game->map_show_players                             = $sql_game->map_show_players;
+  , mapOffsiteMode :: Bool    -- $game->map_offsite_mode                             = $sql_game->map_offsite_mode;
+  , notebookAllowComments :: Bool -- $game->notebook_allow_comments                      = $sql_game->notebook_allow_comments;
+  , notebookAllowLikes :: Bool -- $game->notebook_allow_likes                         = $sql_game->notebook_allow_likes;
+  -- $game->notebook_trigger_scene_id                    = $sql_game->notebook_trigger_scene_id;
+  -- $game->notebook_trigger_requirement_root_package_id = $sql_game->notebook_trigger_requirement_root_package_id;
+  -- $game->notebook_trigger_title                       = $sql_game->notebook_trigger_title;
+  -- $game->notebook_trigger_icon_media_id               = $sql_game->notebook_trigger_icon_media_id;
+  -- $game->notebook_trigger_distance                    = $sql_game->notebook_trigger_distance;
+  -- $game->notebook_trigger_infinite_distance           = $sql_game->notebook_trigger_infinite_distance;
+  -- $game->notebook_trigger_wiggle                      = $sql_game->notebook_trigger_wiggle;
+  -- $game->notebook_trigger_show_title                  = $sql_game->notebook_trigger_show_title;
+  -- $game->notebook_trigger_hidden                      = $sql_game->notebook_trigger_hidden;
+  -- $game->notebook_trigger_on_enter                    = $sql_game->notebook_trigger_on_enter;
+  , inventoryWeightCap :: Int -- $game->inventory_weight_cap                         = $sql_game->inventory_weight_cap;
   } deriving (Eq, Ord, Show, Read)
 
 instance A.FromJSON Game where
@@ -75,8 +96,19 @@ instance A.FromJSON Game where
     gameDescription <-             obj .: "description"
     iconMediaID     <- parseRead $ obj .: "icon_media_id"
     mediaID         <- parseRead $ obj .: "media_id"
+    published       <- parseBool $ obj .: "published"
     gameType        <-             obj .: "type"
+    introSceneID    <- parseRead $ obj .: "intro_scene_id"
     mapType         <-             obj .: "map_type"
+    mapLatitude     <- parseRead $ obj .: "map_latitude"
+    mapLongitude    <- parseRead $ obj .: "map_longitude"
+    mapZoomLevel    <- parseRead $ obj .: "map_zoom_level"
+    mapShowPlayer   <- parseBool $ obj .: "map_show_player"
+    mapShowPlayers  <- parseBool $ obj .: "map_show_players"
+    mapOffsiteMode  <- parseBool $ obj .: "map_offsite_mode"
+    notebookAllowComments <- parseBool $ obj .: "notebook_allow_comments"
+    notebookAllowLikes    <- parseBool $ obj .: "notebook_allow_likes"
+    inventoryWeightCap    <- parseRead $ obj .: "inventory_weight_cap"
     return Game{..}
 
 data GameType
