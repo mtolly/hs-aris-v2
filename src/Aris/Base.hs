@@ -1,5 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 module Aris.Base where
 
 import Network.HTTP (simpleHTTP, postRequestWithBody, getResponseBody)
@@ -9,8 +12,10 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BL
 import Control.Applicative ((<|>))
+import Data.Foldable (Foldable)
+import Data.Traversable (Traversable)
 
-callAris :: String -> A.Value -> IO (Return A.Value)
+callAris :: (A.ToJSON a, A.FromJSON b) => String -> a -> IO (Return b)
 callAris fun val = do
   rsp <- simpleHTTP $ postRequestWithBody
     ("http://dev.arisgames.org/server/json.php/v2." ++ fun)
@@ -26,7 +31,7 @@ data Return a
   = Fault { faultCode :: String, faultDetail :: String, faultString :: String }
   | Error { returnCode :: Int, returnCodeDescription :: String }
   | Data a
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Functor, Foldable, Traversable)
 
 instance (A.FromJSON a) => A.FromJSON (Return a) where
   parseJSON = A.withObject "return-code-wrapped object" $ \obj
