@@ -54,7 +54,40 @@ instance (A.FromJSON a) => A.FromJSON (Return a) where
 
 getGame :: Int -> IO (Return Game)
 getGame i = callAris "games.getGame" $ A.object
-  [ ("game_id", A.Number $ fromIntegral i)
+  [ ("game_id", A.toJSON i)
+  ]
+
+data Auth = Auth
+  { a_user_id    :: Int
+  , a_permission :: String
+  , a_key        :: String
+  } deriving (Eq, Ord, Show, Read)
+
+data User = User
+  { u_user_id :: AsStr Int
+  , u_user_name :: String
+  , u_display_name :: String
+  , u_media_id :: AsStr Int
+  , u_read_write_key :: String
+  } deriving (Eq, Ord, Show, Read)
+
+userToAuth :: User -> Auth
+userToAuth User{..} = Auth
+  { a_user_id    = runAsStr u_user_id
+  , a_permission = "read_write"
+  , a_key        = u_read_write_key
+  }
+
+getGamesForUser :: Auth -> IO (Return [Game])
+getGamesForUser auth = callAris "games.getGamesForUser" $ A.object
+  [ ("auth", A.toJSON auth)
+  ]
+
+logIn :: String -> String -> IO (Return User)
+logIn un pw = callAris "users.logIn" $ A.object
+  [ ("user_name", A.toJSON un)
+  , ("password", A.toJSON pw)
+  , ("permission", "read_write")
   ]
 
 newtype AsStr a = AsStr { runAsStr :: a }
@@ -116,6 +149,9 @@ data MapType
   | Satellite
   | Hybrid
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
+
+ATH.deriveToJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Auth
+ATH.deriveFromJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''User
 
 ATH.deriveFromJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Game
 ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''GameType
