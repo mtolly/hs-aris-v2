@@ -20,18 +20,9 @@ import Data.Traversable (Traversable)
 import Text.Read (readMaybe)
 import Data.Char (toUpper)
 
-callAris :: (A.ToJSON a, A.FromJSON b) => String -> a -> IO (Return b)
-callAris fun val = do
-  rsp <- simpleHTTP $ postRequestWithBody
-    ("http://dev.arisgames.org/server/json.php/v2." ++ fun)
-    "application/x-www-form-urlencoded"
-    (T.unpack $ TE.decodeUtf8 $ BL.toStrict $ A.encode val)
-  body <- getResponseBody rsp
-  case A.eitherDecodeStrict $ TE.encodeUtf8 $ T.pack body of
-    Right x  -> return x
-    Left err -> return $ Return $ Left $ Internal
-      $ "Aris.Base.callAris: invalid JSON returned by API; "
-      ++ err ++ "; response body: " ++ body
+import Control.Monad.Trans.Except
+import Control.Monad.Trans.Class
+import Control.Monad.IO.Class
 
 data ArisError
   = Error { returnCode :: Int, returnCodeDescription :: String }
@@ -39,25 +30,45 @@ data ArisError
   | Internal String
   deriving (Eq, Ord, Show, Read)
 
-newtype Return a = Return { runReturn :: Either ArisError a }
-  deriving (Eq, Ord, Show, Read, Functor, Foldable, Traversable, Applicative, Monad)
+arisIO :: Aris a -> IO a
+arisIO act = runExceptT (runArisT act) >>= either (error . show) return
 
-instance (A.FromJSON a) => A.FromJSON (Return a) where
+newtype ArisT m a = ArisT { runArisT :: ExceptT ArisError m a } deriving
+  ( Eq, Ord, Show, Read
+  , Functor, Foldable, Traversable, Applicative, Monad
+  , MonadTrans, MonadIO
+  )
+type Aris = ArisT IO
+
+instance (A.FromJSON a, Monad m) => A.FromJSON (ArisT m a) where
   parseJSON = A.withObject "return-code-wrapped object" $ \obj
     ->  do
       faultCode   <- obj .: "faultCode"
       faultDetail <- obj .: "faultDetail"
       faultString <- obj .: "faultString"
-      return $ Return $ Left Fault{..}
+      return $ ArisT $ throwE Fault{..}
     <|> do
       returnCode <- obj .: "returnCode"
       if returnCode == 0
-        then fmap (Return . Right) $ obj .: "data"
+        then fmap return $ obj .: "data"
         else do
           returnCodeDescription <- obj .: "returnCodeDescription"
-          return $ Return $ Left Error{..}
+          return $ ArisT $ throwE Error{..}
 
-getGame :: Int -> IO (Return Game)
+callAris :: (A.ToJSON a, A.FromJSON b) => String -> a -> Aris b
+callAris fun val = do
+  rsp <- liftIO $ simpleHTTP $ postRequestWithBody
+    ("http://dev.arisgames.org/server/json.php/v2." ++ fun)
+    "application/x-www-form-urlencoded"
+    (T.unpack $ TE.decodeUtf8 $ BL.toStrict $ A.encode val)
+  body <- liftIO $ getResponseBody rsp
+  case A.eitherDecodeStrict $ TE.encodeUtf8 $ T.pack body of
+    Right x  -> x
+    Left err -> ArisT $ throwE $ Internal
+      $ "Aris.Base.callAris: invalid JSON returned by API; "
+      ++ err ++ "; response body: " ++ body
+
+getGame :: Int -> Aris Game
 getGame i = callAris "games.getGame" $ A.object
   [ ("game_id", A.toJSON i)
   ]
@@ -75,7 +86,7 @@ data User = User
   , u_media_id :: AsStr Int
   } deriving (Eq, Ord, Show, Read)
 
-getGamesForUser :: Auth -> IO (Return [Game])
+getGamesForUser :: Auth -> Aris [Game]
 getGamesForUser auth = callAris "games.getGamesForUser" $ A.object
   [ ("auth", A.toJSON auth)
   ]
@@ -97,14 +108,14 @@ instance A.FromJSON UserAuth where
       auth <- authFor "read_write" <|> authFor "read" <|> authFor "write"
       return $ UserAuth user auth
 
-logIn :: String -> String -> IO (Return UserAuth)
+logIn :: String -> String -> Aris UserAuth
 logIn un pw = callAris "users.logIn" $ A.object
     [ ("user_name", A.toJSON un)
     , ("password", A.toJSON pw)
     , ("permission", "read_write")
     ]
 
-getUser :: Auth -> Int -> IO (Return User)
+getUser :: Auth -> Int -> Aris (Maybe User)
 getUser auth i = callAris "users.getUser" $ A.object
   [ ("auth", A.toJSON auth)
   , ("user_id", A.toJSON i)
