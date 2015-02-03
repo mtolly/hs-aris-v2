@@ -19,6 +19,8 @@ import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
 import Text.Read (readMaybe)
 import Data.Char (toUpper)
+import Data.Default (Default(..))
+import qualified Data.HashMap.Strict as HM
 
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Class
@@ -73,6 +75,22 @@ getGame i = callAris "games.getGame" $ A.object
   [ ("game_id", A.toJSON i)
   ]
 
+callWithAuth :: (A.ToJSON a, A.FromJSON b) => String -> a -> Auth -> Aris b
+callWithAuth fun val auth = case A.toJSON val of
+  A.Object obj -> callAris fun $ A.Object $ HM.insert "auth" (A.toJSON auth) obj
+  notObject    -> ArisT $ throwE $ Internal $ unwords
+    [ "Aris.Base.callWithAuth: couldn't call function"
+    , fun
+    , "because an authenticated value wasn't an object, but was instead"
+    , show notObject
+    ]
+
+createGame :: Game -> Auth -> Aris Game
+createGame = callWithAuth "games.createGame"
+
+updateGame :: Game -> Auth -> Aris Game
+updateGame = callWithAuth "games.updateGame"
+
 data Auth = Auth
   { a_user_id    :: Int
   , a_permission :: String
@@ -87,9 +105,7 @@ data User = User
   } deriving (Eq, Ord, Show, Read)
 
 getGamesForUser :: Auth -> Aris [Game]
-getGamesForUser auth = callAris "games.getGamesForUser" $ A.object
-  [ ("auth", A.toJSON auth)
-  ]
+getGamesForUser = callWithAuth "games.getGamesForUser" $ A.object []
 
 data UserAuth = UserAuth { ua_user :: User, ua_auth :: Auth }
   deriving (Eq, Ord, Show, Read)
@@ -110,15 +126,19 @@ instance A.FromJSON UserAuth where
 
 logIn :: String -> String -> Aris UserAuth
 logIn un pw = callAris "users.logIn" $ A.object
-    [ ("user_name", A.toJSON un)
-    , ("password", A.toJSON pw)
-    , ("permission", "read_write")
-    ]
+  [ ("user_name", A.toJSON un)
+  , ("password", A.toJSON pw)
+  , ("permission", "read_write")
+  ]
 
-getUser :: Auth -> Int -> Aris (Maybe User)
-getUser auth i = callAris "users.getUser" $ A.object
-  [ ("auth", A.toJSON auth)
-  , ("user_id", A.toJSON i)
+getUser :: Int -> Auth -> Aris (Maybe User)
+getUser i = callWithAuth "users.getUser" $ A.object
+  [ ("user_id", A.toJSON i)
+  ]
+
+getUsersForGame :: Int -> Auth -> Aris [User]
+getUsersForGame i = callWithAuth "users.getUsersForGame" $ A.object
+  [ ("game_id", A.toJSON i)
   ]
 
 newtype AsStr a = AsStr { runAsStr :: a } deriving
@@ -142,41 +162,48 @@ newtype StrBool = StrBool { runStrBool :: Bool }
 instance A.FromJSON StrBool where
   parseJSON (A.String "0") = return $ StrBool False
   parseJSON (A.String "1") = return $ StrBool True
-  parseJSON _ = fail "expected bool as \"0\" \"1\""
+  parseJSON _ = fail "expected bool as \"0\" or \"1\""
 
 instance A.ToJSON StrBool where
   toJSON (StrBool b) = A.String $ if b then "1" else "0"
 
 data Game = Game
-  { g_game_id :: AsStr Int
-  , g_name :: String
-  , g_description :: String
-  , g_icon_media_id :: AsStr Int
-  , g_media_id :: AsStr Int
-  , g_map_type :: MapType
-  , g_map_latitude :: AsStr Double
-  , g_map_longitude :: AsStr Double
-  , g_map_zoom_level :: AsStr Double
-  , g_map_show_player :: StrBool
-  , g_map_show_players :: StrBool
-  , g_map_offsite_mode :: StrBool
-  , g_notebook_allow_comments :: StrBool
-  , g_notebook_allow_likes :: StrBool
-  , g_notebook_trigger_scene_id :: AsStr Int
-  , g_notebook_trigger_requirement_root_package_id :: AsStr Int
-  , g_notebook_trigger_title :: String
-  , g_notebook_trigger_icon_media_id :: AsStr Int
-  , g_notebook_trigger_distance :: AsStr Int
-  , g_notebook_trigger_infinite_distance :: StrBool
-  , g_notebook_trigger_wiggle :: StrBool
-  , g_notebook_trigger_show_title :: StrBool
-  , g_notebook_trigger_hidden :: StrBool
-  , g_notebook_trigger_on_enter :: StrBool
-  , g_inventory_weight_cap :: AsStr Int
-  , g_published :: StrBool
-  , g_type :: GameType
-  , g_intro_scene_id :: AsStr Int
+  { g_game_id                                      :: Maybe (AsStr Int)
+  , g_name                                         :: Maybe String
+  , g_description                                  :: Maybe String
+  , g_icon_media_id                                :: Maybe (AsStr Int)
+  , g_media_id                                     :: Maybe (AsStr Int)
+  , g_map_type                                     :: Maybe MapType
+  , g_map_latitude                                 :: Maybe (AsStr Double)
+  , g_map_longitude                                :: Maybe (AsStr Double)
+  , g_map_zoom_level                               :: Maybe (AsStr Double)
+  , g_map_show_player                              :: Maybe StrBool
+  , g_map_show_players                             :: Maybe StrBool
+  , g_map_offsite_mode                             :: Maybe StrBool
+  , g_notebook_allow_comments                      :: Maybe StrBool
+  , g_notebook_allow_likes                         :: Maybe StrBool
+  , g_notebook_trigger_scene_id                    :: Maybe (AsStr Int)
+  , g_notebook_trigger_requirement_root_package_id :: Maybe (AsStr Int)
+  , g_notebook_trigger_title                       :: Maybe String
+  , g_notebook_trigger_icon_media_id               :: Maybe (AsStr Int)
+  , g_notebook_trigger_distance                    :: Maybe (AsStr Int)
+  , g_notebook_trigger_infinite_distance           :: Maybe StrBool
+  , g_notebook_trigger_wiggle                      :: Maybe StrBool
+  , g_notebook_trigger_show_title                  :: Maybe StrBool
+  , g_notebook_trigger_hidden                      :: Maybe StrBool
+  , g_notebook_trigger_on_enter                    :: Maybe StrBool
+  , g_inventory_weight_cap                         :: Maybe (AsStr Int)
+  , g_published                                    :: Maybe StrBool
+  , g_type                                         :: Maybe GameType
+  , g_intro_scene_id                               :: Maybe (AsStr Int)
   } deriving (Eq, Ord, Show, Read)
+
+instance Default Game where
+  def = Game
+    def def def def def def def
+    def def def def def def def
+    def def def def def def def
+    def def def def def def def
 
 data GameType
   = Location
@@ -191,8 +218,7 @@ data MapType
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Auth
-ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2, ATH.omitNothingFields = True } ''User
-
-ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Game
+ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''User
+ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2, ATH.omitNothingFields = True } ''Game
 ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''GameType
 ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''MapType
