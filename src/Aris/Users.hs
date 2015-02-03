@@ -6,20 +6,33 @@ import qualified Data.Aeson as A
 import Aris.Types
 import Aris.Base
 
--- TODO: createUser
--- takes {user_name, password, email?, media_id?, display_name?}
--- returns logIn
+createUser
+  :: User -- ^ {user_name, password, email?, media_id?, display_name?}
+  -> Aris UserAuth
+createUser = callAris "users.createUser"
 
--- TODO: updateUser
--- takes {auth, display_name?, email?, media/media_id?}
--- returns logIn
+updateUser
+  :: User -- ^ {display_name?, email?, media[_id]?}
+  -> Auth
+  -> Aris UserAuth
+updateUser = callWithAuth "users.updateUser"
 
-logIn :: String -> String -> Aris UserAuth
+logIn
+  :: String -- ^ username
+  -> String -- ^ password
+  -> Aris UserAuth
 logIn un pw = callAris "users.logIn" $ A.object
   [ ("user_name" , A.toJSON un )
   , ("password"  , A.toJSON pw )
   , ("permission", "read_write")
   ]
+
+logInCall
+  :: String -- ^ username
+  -> String -- ^ password
+  -> (Auth -> Aris a)
+  -> Aris a
+logInCall un pw f = logIn un pw >>= f . ua_auth
 
 changePassword
   :: String -- ^ username

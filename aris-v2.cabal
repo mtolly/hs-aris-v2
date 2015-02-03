@@ -24,6 +24,7 @@ library
     , transformers
     , data-default
     , unordered-containers
+    , base64-bytestring
   default-language:     Haskell2010
   ghc-options:          -Wall
   hs-source-dirs:       src

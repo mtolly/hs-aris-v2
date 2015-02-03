@@ -18,10 +18,6 @@ import Data.Char (toUpper)
 import Data.Default (Default(..))
 import Control.Arrow (first)
 
---
--- Types
---
-
 -- | Wrapper for values which also allows deserializing from a string
 -- using their "Read" instance.
 newtype AsStr a = AsStr { runAsStr :: a } deriving
@@ -47,13 +43,18 @@ instance (Read a) => Read (AsStr a) where
   readList s = map (first $ map AsStr) $ readList s
 
 newtype StrBool = StrBool { runStrBool :: Bool }
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord)
 instance A.FromJSON StrBool where
   parseJSON (A.String "0") = return $ StrBool False
   parseJSON (A.String "1") = return $ StrBool True
   parseJSON _ = fail "expected bool as \"0\" or \"1\""
 instance A.ToJSON StrBool where
   toJSON (StrBool b) = A.String $ if b then "1" else "0"
+instance Show StrBool where
+  show (StrBool x) = show x
+instance Read StrBool where
+  readsPrec p s = map (first StrBool) $ readsPrec p s
+  readList s = map (first $ map StrBool) $ readList s
 
 data Auth = Auth
   { a_user_id    :: Int
@@ -62,27 +63,34 @@ data Auth = Auth
   } deriving (Eq, Ord, Show, Read)
 
 data User = User
-  { u_user_id      :: AsStr Int
-  , u_user_name    :: String
-  , u_display_name :: String
-  , u_media_id     :: AsStr Int
+  { u_user_id      :: Maybe (AsStr Int)
+  , u_user_name    :: Maybe String
+  , u_password     :: Maybe String
+  , u_email        :: Maybe String
+  , u_display_name :: Maybe String
+  , u_media_id     :: Maybe (AsStr Int)
   } deriving (Eq, Ord, Show, Read)
+instance Default User where
+  def = User def def def def def def
 
 data UserAuth = UserAuth { ua_user :: User, ua_auth :: Auth }
   deriving (Eq, Ord, Show, Read)
 instance A.FromJSON UserAuth where
   parseJSON v = do
     user <- A.parseJSON v
-    flip (A.withObject "object with auth key") v $ \obj -> do
-      let authFor perm = do
-            key <- obj .: T.pack (perm ++ "_key")
-            return Auth
-              { a_user_id    = runAsStr $ u_user_id user
-              , a_permission = perm
-              , a_key        = key
-              }
-      auth <- authFor "read_write" <|> authFor "read" <|> authFor "write"
-      return $ UserAuth user auth
+    case u_user_id user of
+      Just (AsStr uid) -> flip (A.withObject "object with auth key") v $ \obj -> let
+        authFor perm = do
+          key <- obj .: T.pack (perm ++ "_key")
+          return Auth
+            { a_user_id    = uid
+            , a_permission = perm
+            , a_key        = key
+            }
+        in do
+          auth <- authFor "read_write" <|> authFor "read" <|> authFor "write"
+          return $ UserAuth user auth
+      Nothing -> fail "couldn't read UserAuth because no user_id"
 
 data Game = Game
   { g_game_id                                      :: Maybe (AsStr Int)
@@ -141,9 +149,11 @@ data Media = Media
   , m_url       :: Maybe String
   , m_thumb_url :: Maybe String
   } deriving (Eq, Ord, Show, Read)
+instance Default Media where
+  def = Media def def def def def def
 
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Auth
-ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''User
+ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2, ATH.omitNothingFields = True } ''User
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2, ATH.omitNothingFields = True } ''Game
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2, ATH.omitNothingFields = True } ''Media
 ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''GameType
