@@ -6,10 +6,6 @@ import qualified Data.Aeson as A
 import Aris.Types
 import Aris.Base
 
---
--- games.php
---
-
 createGame :: Game -> Auth -> Aris Game
 createGame = callWithAuth "games.createGame"
 

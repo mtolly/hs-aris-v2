@@ -134,17 +134,17 @@ data MapType
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
 data Media = Media
-  { m_media_id  :: AsStr Int
-  , m_game_id   :: AsStr Int
-  , m_name      :: String
-  , m_file_name :: String
-  , m_url       :: String
-  , m_thumb_url :: String
+  { m_media_id  :: Maybe (AsStr Int)
+  , m_game_id   :: Maybe (AsStr Int)
+  , m_name      :: Maybe String
+  , m_file_name :: Maybe String
+  , m_url       :: Maybe String
+  , m_thumb_url :: Maybe String
   } deriving (Eq, Ord, Show, Read)
 
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Auth
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''User
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2, ATH.omitNothingFields = True } ''Game
-ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Media
+ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2, ATH.omitNothingFields = True } ''Media
 ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''GameType
 ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''MapType
