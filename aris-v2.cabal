@@ -8,7 +8,12 @@ cabal-version:        >= 1.10
 
 library
   exposed-modules:
+    Aris
     Aris.Base
+    Aris.Types
+    Aris.Games
+    Aris.Users
+    Aris.Media
   other-modules:
   build-depends:
     base
