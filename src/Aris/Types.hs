@@ -10,6 +10,7 @@ import qualified Data.Aeson as A
 import qualified Data.Aeson.TH as ATH
 import Data.Aeson ((.:))
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Control.Applicative ((<|>))
 import Data.Foldable (Foldable)
 import Data.Traversable (Traversable)
@@ -17,6 +18,8 @@ import Text.Read (readMaybe)
 import Data.Char (toUpper)
 import Data.Default (Default(..))
 import Control.Arrow (first)
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Base64 as B64
 
 -- | Wrapper for values which also allows deserializing from a string
 -- using their "Read" instance.
@@ -37,10 +40,9 @@ instance (Read a, A.FromJSON a) => A.FromJSON (AsStr a) where
 instance (A.ToJSON a) => A.ToJSON (AsStr a) where
   toJSON (AsStr x) = A.toJSON x
 instance (Show a) => Show (AsStr a) where
-  show (AsStr x) = show x
+  showsPrec p (AsStr x) = showsPrec p x
 instance (Read a) => Read (AsStr a) where
   readsPrec p s = map (first AsStr) $ readsPrec p s
-  readList s = map (first $ map AsStr) $ readList s
 
 newtype StrBool = StrBool { runStrBool :: Bool }
   deriving (Eq, Ord)
@@ -51,10 +53,23 @@ instance A.FromJSON StrBool where
 instance A.ToJSON StrBool where
   toJSON (StrBool b) = A.String $ if b then "1" else "0"
 instance Show StrBool where
-  show (StrBool x) = show x
+  showsPrec p (StrBool x) = showsPrec p x
 instance Read StrBool where
   readsPrec p s = map (first StrBool) $ readsPrec p s
-  readList s = map (first $ map StrBool) $ readList s
+
+newtype Base64 = Base64 { runBase64 :: B.ByteString }
+  deriving (Eq, Ord)
+instance A.ToJSON Base64 where
+  toJSON (Base64 bs) = A.toJSON $ TE.decodeUtf8 $ B64.encode bs
+instance A.FromJSON Base64 where
+  parseJSON = A.withText "base64 string" $ \txt ->
+    case B64.decode $ TE.encodeUtf8 txt of
+      Left err -> fail $ "could not decode base64 string from JSON: " ++ err
+      Right bs -> return $ Base64 bs
+instance Show Base64 where
+  showsPrec p (Base64 x) = showsPrec p x
+instance Read Base64 where
+  readsPrec p s = map (first Base64) $ readsPrec p s
 
 data Auth = Auth
   { a_user_id    :: Int
@@ -148,9 +163,10 @@ data Media = Media
   , m_file_name :: Maybe String
   , m_url       :: Maybe String
   , m_thumb_url :: Maybe String
+  , m_data      :: Maybe Base64
   } deriving (Eq, Ord, Show, Read)
 instance Default Media where
-  def = Media def def def def def def
+  def = Media def def def def def def def
 
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Auth
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2, ATH.omitNothingFields = True } ''User

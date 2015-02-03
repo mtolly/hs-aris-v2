@@ -2,33 +2,20 @@
 module Aris.Media where
 
 import qualified Data.Aeson as A
-import qualified Data.HashMap.Strict as HM
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Base64 as B64
-import qualified Data.ByteString.Char8 as B8
 
 import Aris.Types
 import Aris.Base
 
-createMediaBS
-  :: B.ByteString
-  -> Media -- ^ {file_name, game_id, name?}
-  -> Auth
-  -> Aris Media
-createMediaBS = createMedia . B8.unpack . B64.encode
-
 createMedia
-  :: String -- ^ base64 data
-  -> Media -- ^ {file_name, game_id, name?}
+  :: Media -- ^ {data, file_name, game_id, name?}
   -> Auth
   -> Aris Media
-createMedia b64 media = case A.toJSON media of
-  A.Object mobj ->
-    callWithAuth "media.createMedia" $ HM.insert "data" (A.toJSON b64) mobj
-  notObject -> fail $
-    "createMedia: couldn't insert media data into non-object " ++ show notObject
+createMedia = callWithAuth "media.createMedia"
 
-updateMedia :: Media -> Auth -> Aris Media
+updateMedia
+  :: Media -- ^ {media_id, name}
+  -> Auth
+  -> Aris Media
 updateMedia = callWithAuth "media.updateMedia"
 
 getMedia :: Int -> Aris Media
