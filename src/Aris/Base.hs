@@ -141,21 +141,41 @@ getUsersForGame i = callWithAuth "users.getUsersForGame" $ A.object
 -- TODO: requestForgotPasswordEmail
 
 --
+-- media.php
+--
+
+getMedia :: Int -> Aris Media
+getMedia i = callAris "media.getMedia" $ A.object
+  [ ("media_id", A.toJSON i)
+  ]
+
+--
 -- Types
 --
 
+-- | Wrapper for values which also allows deserializing from a string
+-- using their "Read" instance.
 newtype AsStr a = AsStr { runAsStr :: a } deriving
-  ( Eq, Ord, Show, Read
+  ( Eq, Ord
   , Functor, Foldable, Traversable
   , Num, Enum, Integral, Real, Fractional, RealFrac
   )
-instance (Read a) => A.FromJSON (AsStr a) where
-  parseJSON = A.withText "value stored as string" $ \txt ->
-    case readMaybe $ T.unpack txt of
-      Nothing -> fail $ "couldn't read value from String: " ++ show txt
-      Just x  -> return $ AsStr x
-instance (Show a) => A.ToJSON (AsStr a) where
-  toJSON (AsStr x) = A.String $ T.pack $ show x
+instance (Read a, A.FromJSON a) => A.FromJSON (AsStr a) where
+  parseJSON val
+    =   do
+      flip (A.withText "value stored as string") val $ \txt ->
+        case readMaybe $ T.unpack txt of
+          Nothing -> fail $ "couldn't read value from String: " ++ show txt
+          Just x  -> return $ AsStr x
+    <|> do
+      fmap AsStr $ A.parseJSON val
+instance (A.ToJSON a) => A.ToJSON (AsStr a) where
+  toJSON (AsStr x) = A.toJSON x
+instance (Show a) => Show (AsStr a) where
+  show (AsStr x) = show x
+instance (Read a) => Read (AsStr a) where
+  readsPrec p s = map (\(x, y) -> (AsStr x, y)) $ readsPrec p s
+  readList s = map (\(xs, y) -> (map AsStr xs, y)) $ readList s
 
 newtype StrBool = StrBool { runStrBool :: Bool }
   deriving (Eq, Ord, Show, Read)
@@ -244,8 +264,18 @@ data MapType
   | Hybrid
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
+data Media = Media
+  { m_media_id  :: AsStr Int
+  , m_game_id   :: AsStr Int
+  , m_name      :: String
+  , m_file_name :: String
+  , m_url       :: String
+  , m_thumb_url :: String
+  } deriving (Eq, Ord, Show, Read)
+
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Auth
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''User
 ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2, ATH.omitNothingFields = True } ''Game
+ATH.deriveJSON ATH.defaultOptions{ ATH.fieldLabelModifier = drop 2 } ''Media
 ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''GameType
 ATH.deriveJSON ATH.defaultOptions{ ATH.constructorTagModifier = map toUpper } ''MapType
