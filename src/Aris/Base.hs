@@ -32,15 +32,15 @@ data ArisError
   | Internal String
   deriving (Eq, Ord, Show, Read)
 
-arisIO :: Aris a -> IO a
-arisIO act = runExceptT (runArisT act) >>= either (error . show) return
-
 newtype ArisT m a = ArisT { runArisT :: ExceptT ArisError m a } deriving
   ( Eq, Ord, Show, Read
   , Functor, Foldable, Traversable, Applicative, Monad
   , MonadTrans, MonadIO
   )
 type Aris = ArisT IO
+
+arisIO :: Aris a -> IO a
+arisIO act = runExceptT (runArisT act) >>= either (error . show) return
 
 instance (A.FromJSON a, Monad m) => A.FromJSON (ArisT m a) where
   parseJSON = A.withObject "return-code-wrapped object" $ \obj
@@ -70,11 +70,6 @@ callAris fun val = do
       $ "Aris.Base.callAris: invalid JSON returned by API; "
       ++ err ++ "; response body: " ++ body
 
-getGame :: Int -> Aris Game
-getGame i = callAris "games.getGame" $ A.object
-  [ ("game_id", A.toJSON i)
-  ]
-
 callWithAuth :: (A.ToJSON a, A.FromJSON b) => String -> a -> Auth -> Aris b
 callWithAuth fun val auth = case A.toJSON val of
   A.Object obj -> callAris fun $ A.Object $ HM.insert "auth" (A.toJSON auth) obj
@@ -85,11 +80,91 @@ callWithAuth fun val auth = case A.toJSON val of
     , show notObject
     ]
 
+--
+-- games.php
+--
+
 createGame :: Game -> Auth -> Aris Game
 createGame = callWithAuth "games.createGame"
 
 updateGame :: Game -> Auth -> Aris Game
 updateGame = callWithAuth "games.updateGame"
+
+getGame :: Int -> Aris Game
+getGame i = callAris "games.getGame" $ A.object
+  [ ("game_id", A.toJSON i)
+  ]
+
+getGamesForUser :: Auth -> Aris [Game]
+getGamesForUser = callWithAuth "games.getGamesForUser" $ A.object []
+
+deleteGame :: Int -> Auth -> Aris ()
+deleteGame i = callWithAuth "games.deleteGame" $ A.object
+  [ ("game_id", A.toJSON i)
+  ]
+
+-- TODO: getFullGame
+
+--
+-- users.php
+--
+
+-- TODO: createUser
+
+-- TODO: updateUser
+
+logIn :: String -> String -> Aris UserAuth
+logIn un pw = callAris "users.logIn" $ A.object
+  [ ("user_name", A.toJSON un)
+  , ("password", A.toJSON pw)
+  , ("permission", "read_write")
+  ]
+
+-- TODO: changePassword
+
+-- TODO: fixPassword
+
+getUser :: Int -> Auth -> Aris (Maybe User)
+getUser i = callWithAuth "users.getUser" $ A.object
+  [ ("user_id", A.toJSON i)
+  ]
+
+getUsersForGame :: Int -> Auth -> Aris [User]
+getUsersForGame i = callWithAuth "users.getUsersForGame" $ A.object
+  [ ("game_id", A.toJSON i)
+  ]
+
+-- TODO: getUsersForFuzzySearch
+
+-- TODO: getUserForSearch
+
+-- TODO: requestForgotPasswordEmail
+
+--
+-- Types
+--
+
+newtype AsStr a = AsStr { runAsStr :: a } deriving
+  ( Eq, Ord, Show, Read
+  , Functor, Foldable, Traversable
+  , Num, Enum, Integral, Real, Fractional, RealFrac
+  )
+instance (Read a) => A.FromJSON (AsStr a) where
+  parseJSON = A.withText "value stored as string" $ \txt ->
+    case readMaybe $ T.unpack txt of
+      Nothing -> fail $ "couldn't read value from String: " ++ show txt
+      Just x  -> return $ AsStr x
+instance (Show a) => A.ToJSON (AsStr a) where
+  toJSON (AsStr x) = A.String $ T.pack $ show x
+
+newtype StrBool = StrBool { runStrBool :: Bool }
+  deriving (Eq, Ord, Show, Read)
+instance A.FromJSON StrBool where
+  parseJSON (A.String "0") = return $ StrBool False
+  parseJSON (A.String "1") = return $ StrBool True
+  parseJSON _ = fail "expected bool as \"0\" or \"1\""
+instance A.ToJSON StrBool where
+  toJSON (StrBool b) = A.String $ if b then "1" else "0"
 
 data Auth = Auth
   { a_user_id    :: Int
@@ -98,18 +173,14 @@ data Auth = Auth
   } deriving (Eq, Ord, Show, Read)
 
 data User = User
-  { u_user_id :: AsStr Int
-  , u_user_name :: String
+  { u_user_id      :: AsStr Int
+  , u_user_name    :: String
   , u_display_name :: String
-  , u_media_id :: AsStr Int
+  , u_media_id     :: AsStr Int
   } deriving (Eq, Ord, Show, Read)
-
-getGamesForUser :: Auth -> Aris [Game]
-getGamesForUser = callWithAuth "games.getGamesForUser" $ A.object []
 
 data UserAuth = UserAuth { ua_user :: User, ua_auth :: Auth }
   deriving (Eq, Ord, Show, Read)
-
 instance A.FromJSON UserAuth where
   parseJSON v = do
     user <- A.parseJSON v
@@ -123,49 +194,6 @@ instance A.FromJSON UserAuth where
               }
       auth <- authFor "read_write" <|> authFor "read" <|> authFor "write"
       return $ UserAuth user auth
-
-logIn :: String -> String -> Aris UserAuth
-logIn un pw = callAris "users.logIn" $ A.object
-  [ ("user_name", A.toJSON un)
-  , ("password", A.toJSON pw)
-  , ("permission", "read_write")
-  ]
-
-getUser :: Int -> Auth -> Aris (Maybe User)
-getUser i = callWithAuth "users.getUser" $ A.object
-  [ ("user_id", A.toJSON i)
-  ]
-
-getUsersForGame :: Int -> Auth -> Aris [User]
-getUsersForGame i = callWithAuth "users.getUsersForGame" $ A.object
-  [ ("game_id", A.toJSON i)
-  ]
-
-newtype AsStr a = AsStr { runAsStr :: a } deriving
-  ( Eq, Ord, Show, Read
-  , Functor, Foldable, Traversable
-  , Num, Enum, Integral, Real, Fractional, RealFrac
-  )
-
-instance (Read a) => A.FromJSON (AsStr a) where
-  parseJSON = A.withText "value stored as string" $ \txt ->
-    case readMaybe $ T.unpack txt of
-      Nothing -> fail $ "couldn't read value from String: " ++ show txt
-      Just x  -> return $ AsStr x
-
-instance (Show a) => A.ToJSON (AsStr a) where
-  toJSON (AsStr x) = A.String $ T.pack $ show x
-
-newtype StrBool = StrBool { runStrBool :: Bool }
-  deriving (Eq, Ord, Show, Read)
-
-instance A.FromJSON StrBool where
-  parseJSON (A.String "0") = return $ StrBool False
-  parseJSON (A.String "1") = return $ StrBool True
-  parseJSON _ = fail "expected bool as \"0\" or \"1\""
-
-instance A.ToJSON StrBool where
-  toJSON (StrBool b) = A.String $ if b then "1" else "0"
 
 data Game = Game
   { g_game_id                                      :: Maybe (AsStr Int)
@@ -197,7 +225,6 @@ data Game = Game
   , g_type                                         :: Maybe GameType
   , g_intro_scene_id                               :: Maybe (AsStr Int)
   } deriving (Eq, Ord, Show, Read)
-
 instance Default Game where
   def = Game
     def def def def def def def
